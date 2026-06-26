@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from proxy_manager import ProxyTuple
 
@@ -19,10 +19,10 @@ log = logging.getLogger("session_manager")
 
 @dataclass
 class SessionBinding:
-    """Связка: путь к .session файлу + назначенный ему прокси."""
-    name: str            # имя аккаунта (имя файла без расширения)
-    session_path: Path   # полный путь к .session
-    proxy: ProxyTuple    # назначенный прокси
+    """Связка: путь к .session файлу + назначенный ему прокси (None = напрямую)."""
+    name: str                      # имя аккаунта (имя файла без расширения)
+    session_path: Path             # полный путь к .session
+    proxy: Optional[ProxyTuple]    # назначенный прокси или None
 
 
 def discover_sessions(sessions_dir: Path) -> List[Path]:
@@ -46,7 +46,17 @@ def bind_proxies(
     allow_reuse=False (по умолчанию): строго один прокси на сессию; если прокси
     не хватает — лишние сессии отбрасываются с предупреждением.
     allow_reuse=True: прокси раздаются по кругу (round-robin).
+
+    Особый случай: если прокси нет вообще (пустой список) — все сессии
+    работают напрямую (proxy=None). Удобно для теста, но в бою не рекомендуется.
     """
+    if not proxies:
+        log.warning("Прокси не заданы — все сессии будут работать НАПРЯМУЮ (без прокси).")
+        return [
+            SessionBinding(name=p.stem, session_path=p, proxy=None)
+            for p in sessions
+        ]
+
     bindings: List[SessionBinding] = []
 
     for idx, session_path in enumerate(sessions):

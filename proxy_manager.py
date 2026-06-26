@@ -52,9 +52,12 @@ def _parse_line(line: str) -> ProxyTuple:
 
 
 def load_proxies(path: Path) -> List[ProxyTuple]:
-    """Загрузить все прокси из файла в виде списка кортежей для Telethon."""
+    """
+    Загрузить прокси из файла. Если файла нет или он пустой — вернуть []
+    (тогда сессии работают напрямую, без прокси).
+    """
     if not path.exists():
-        raise FileNotFoundError(f"Файл с прокси не найден: {path}")
+        return []
 
     proxies: List[ProxyTuple] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -63,6 +66,4 @@ def load_proxies(path: Path) -> List[ProxyTuple]:
             continue
         proxies.append(_parse_line(line))
 
-    if not proxies:
-        raise ValueError(f"В файле {path} не найдено ни одного прокси.")
     return proxies
