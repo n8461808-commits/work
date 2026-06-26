@@ -1,0 +1,13 @@
+# Секреты и пользовательские данные — не коммитим!
+sessions/
+*.session
+*.session-journal
+proxies.txt
+targets.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env

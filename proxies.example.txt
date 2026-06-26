@@ -1,0 +1,9 @@
+# Один прокси на строку. Формат:
+#   type:host:port
+#   type:host:port:user:pass
+# type — один из: socks5, socks4, http
+# Порядок важен: 1-я строка -> 1-я сессия, 2-я строка -> 2-я сессия и т.д.
+
+socks5:1.2.3.4:1080:login1:password1
+socks5:5.6.7.8:1080:login2:password2
+http:9.10.11.12:8080
