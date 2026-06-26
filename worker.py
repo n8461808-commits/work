@@ -18,12 +18,20 @@ from dataclasses import dataclass, field
 from typing import List
 
 from telethon import TelegramClient
+from telethon.tl.functions.channels import InviteToChannelRequest
+from telethon.tl.types import InputPeerUser
 from telethon.errors import (
     FloodWaitError,
     PeerFloodError,
     UserPrivacyRestrictedError,
     UserDeactivatedError,
     UserDeactivatedBanError,
+    UserNotMutualContactError,
+    UserChannelsTooMuchError,
+    UserAlreadyParticipantError,
+    UserKickedError,
+    ChatAdminRequiredError,
+    UserBlockedError,
 )
 
 import config
@@ -41,15 +49,21 @@ class WorkerResult:
     errors: List[str] = field(default_factory=list)
 
 
-async def process_target(client: TelegramClient, user_id: int) -> None:
+async def process_target(client: TelegramClient, group_entity, user_id: int) -> None:
     """
-    ТОЧКА РАСШИРЕНИЯ: здесь описывается само «действие» над пользователем.
+    ДЕЙСТВИЕ: добавить пользователя user_id в group_entity (группа/канал).
 
-    По умолчанию — безопасный no-op: просто резолвим сущность пользователя.
-    Замените тело на нужную операцию (добавление в группу, рассылка и т.п.),
-    учитывая правила Telegram и согласие пользователей.
+    group_entity резолвится один раз на аккаунт в run_account() и передаётся сюда,
+    чтобы не дёргать сеть на каждой цели.
+
+    Возможные исключения пробрасываются наверх и разбираются в run_account()
+    (FloodWait, PeerFlood, приватность и т.д.).
     """
-    await client.get_entity(user_id)
+    # Резолвим самого пользователя в InputPeer (нужен access_hash).
+    user = await client.get_input_entity(user_id)
+    if not isinstance(user, InputPeerUser):
+        raise ValueError(f"user_id={user_id} не является пользователем.")
+    await client(InviteToChannelRequest(channel=group_entity, users=[user]))
 
 
 async def run_account(
@@ -83,9 +97,18 @@ async def run_account(
         log.info("Подключён как %s (id=%s). Целей: %d",
                  getattr(me, "username", None) or me.first_name, me.id, len(targets))
 
+        # Резолвим целевую группу один раз. Аккаунт уже должен в ней состоять.
+        try:
+            group_entity = await client.get_entity(config.TARGET_GROUP)
+        except Exception as e:  # noqa: BLE001
+            log.error("Не удалось получить целевую группу %r: %s. Аккаунт пропущен.",
+                      config.TARGET_GROUP, e)
+            result.stopped_reason = "bad_target_group"
+            return result
+
         for uid in targets:
             try:
-                await process_target(client, uid)
+                await process_target(client, group_entity, uid)
                 result.processed += 1
                 log.debug("OK user_id=%s", uid)
                 await asyncio.sleep(config.ACTION_DELAY)
@@ -124,6 +147,24 @@ async def run_account(
                 # Конкретная цель недоступна по настройкам приватности — пропускаем.
                 log.info("user_id=%s недоступен (приватность) — пропуск.", uid)
                 result.skipped += 1
+
+            except UserAlreadyParticipantError:
+                # Уже в группе — считаем успехом, не тратим попытку зря.
+                log.debug("user_id=%s уже в группе — пропуск.", uid)
+                result.skipped += 1
+
+            except (UserNotMutualContactError, UserChannelsTooMuchError,
+                    UserKickedError, UserBlockedError):
+                # «Мягкие» причины: не во взаимных контактах, перебор групп,
+                # был кикнут, заблокировал — пропускаем конкретную цель.
+                log.info("user_id=%s нельзя добавить (ограничение пользователя) — пропуск.", uid)
+                result.skipped += 1
+
+            except ChatAdminRequiredError:
+                # У аккаунта нет прав добавлять участников — дальше бессмысленно.
+                log.error("Нет прав на добавление участников в группу — завершаем цикл.")
+                result.stopped_reason = "no_admin_rights"
+                break
 
             except Exception as e:  # noqa: BLE001 — изолируем одну цель, не весь аккаунт
                 result.failed += 1

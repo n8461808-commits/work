@@ -36,6 +36,11 @@ async def main() -> None:
             "Получите их на https://my.telegram.org и задайте в config.py "
             "или через переменные окружения."
         )
+    if not config.TARGET_GROUP:
+        raise SystemExit(
+            "Не задана TARGET_GROUP — группа/канал, куда добавлять пользователей. "
+            "Укажите @username (без @) или id вида -100... в config.py / ENV."
+        )
 
     # 1. Загружаем ресурсы.
     sessions = discover_sessions(config.SESSIONS_DIR)
